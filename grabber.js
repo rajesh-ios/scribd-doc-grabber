@@ -1,6 +1,28 @@
 let originalStyles = [];
 let overlay = null;
 
+// Expose globally for background script (context menu)
+window.runDownloader = runDownloader;
+
+// Keyboard Shortcut: Cmd/Ctrl + Shift + S
+document.addEventListener('keydown', (e) => {
+  if ((e.metaKey || e.ctrlKey) && e.shiftKey && (e.key === 's' || e.key === 'S')) {
+    e.preventDefault();
+    const btn = document.getElementById('injected-scribd-downloader-btn');
+    if (btn && !btn.disabled) {
+      runDownloader(150);
+    }
+  }
+});
+
+function destroyPaywalls() {
+  const blockers = document.querySelectorAll('.modal, .signup_modal, .overlay, [data-e2e="paywall-overlay"], .full-screen-overlay, .reading-wall, .paywall');
+  blockers.forEach(el => el.remove());
+  if (document.body.style.overflow === 'hidden') {
+    document.body.style.overflow = 'auto'; // Unlock scroll
+  }
+}
+
 
 
 async function runDownloader(scrollDelayMs) {
@@ -11,8 +33,17 @@ async function runDownloader(scrollDelayMs) {
     // 1. Detect the page size before applying layout fixes
     const paperSize = detectDocumentPaperSize();
     
-    // 2. Start scrolling through pages to trigger lazy loading
+    // 2. High Quality Image Forcing - Zoom in to force high-res assets
+    const scroller = document.querySelector('.document_scroller') || document.body;
+    scroller.style.transformOrigin = 'top left';
+    scroller.style.transform = 'scale(1.5)';
+
+    // 3. Start scrolling through pages to trigger lazy loading
     const totalPages = await scrollThroughPages(scrollDelayMs);
+    
+    // Reset zoom
+    scroller.style.transform = 'none';
+    
     if (totalPages === 0) {
       removeOverlay();
       return;
@@ -98,6 +129,7 @@ async function scrollThroughPages(scrollDelayMs) {
     );
 
     for (let i = scrolledCount; i < totalPages; i++) {
+      destroyPaywalls(); // Keep checking for paywalls as we scroll
       pageElements[i].scrollIntoView({ behavior: 'instant', block: 'center' });
       await new Promise(resolve => setTimeout(resolve, scrollDelayMs));
       
@@ -197,7 +229,8 @@ function prepareForPrint(paperSize) {
     [class*="cookie"], [class*="Cookie"], [class*="consent"],
     [class*="Consent"], [class*="gdpr"], [class*="privacy-notice"],
     [class*="notice-banner"], [id*="cookie"], [id*="consent"],
-    [class*="osano-cm"], [id*="osano"] {
+    [class*="osano-cm"], [id*="osano"], [class*="paywall"],
+    [class*="reading-wall"], .modal, .signup_modal {
       display: none !important;
       visibility: hidden !important;
       opacity: 0 !important;

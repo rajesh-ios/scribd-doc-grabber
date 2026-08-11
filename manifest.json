@@ -5,11 +5,15 @@
   "description": "Save any Scribd document as a clean, high-quality PDF - free, fast, and without an account.",
   "permissions": [
     "activeTab",
-    "scripting"
+    "scripting",
+    "contextMenus"
   ],
   "host_permissions": [
     "https://*.scribd.com/*"
   ],
+  "background": {
+    "service_worker": "background.js"
+  },
   "icons": {
     "16": "icons/icon16.png",
     "48": "icons/icon48.png",

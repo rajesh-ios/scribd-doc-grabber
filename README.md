@@ -4,7 +4,10 @@ A lightweight, fully private browser extension that lets you download any Scribd
 
 ## Features
 - **One-click download.** Just click the "📥 Get Document" button directly on any Scribd document page.
+- **Advanced Triggers.** You can now trigger downloads using the **Right-Click Context Menu** or by pressing `Cmd + Shift + S` (Mac) / `Ctrl + Shift + S` (Windows).
 - **No account needed.** Works perfectly without signing into Scribd.
+- **Paywall Destroyer.** Automatically detects and removes full-screen "Sign Up" blocks and modals that try to prevent you from reading.
+- **Ultra High-Quality Images.** The script artificially boosts the document scale before downloading to force Scribd's servers to send crisp, high-resolution pages.
 - **Smart PDF sizing.** The extension accurately measures the paper size so your PDF perfectly matches the original document. No cut-off text or weird blank pages.
 - **Premium Book Support.** Works on standard documents as well as premium E-books.
 - **Unobtrusive.** No giant popups; progress is shown directly on the download button.
