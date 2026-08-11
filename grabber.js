@@ -385,12 +385,16 @@ function updateOverlay(status, detail, current, total, showPageCount = true) {
 
 function showOverlayError(errMessage) {
   const btn = document.getElementById('injected-scribd-downloader-btn');
-  if (!btn) return;
-
-  btn.innerText = '❌ Error (Click to retry)';
-  btn.style.background = '#ef4444';
-  btn.disabled = false;
-  btn.style.cursor = 'pointer';
+  
+  if (btn) {
+    btn.innerText = '❌ Error (Click to retry)';
+    btn.style.background = '#ef4444';
+    btn.disabled = false;
+    btn.style.cursor = 'pointer';
+  }
+  
+  // Alert the user explicitly so they know it didn't just "do nothing"
+  alert("Scribd Document Grabber Error: " + errMessage);
 }
 
 function removeOverlay() {
@@ -406,17 +410,30 @@ function removeOverlay() {
 // Initialization
 (() => {
   // 1. Inject UI Button on page
-  injectDownloadButton();
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', injectDownloadButton);
+  } else {
+    injectDownloadButton();
+  }
 
   // 2. Auto-start check when script loads in embed context
   const urlParams = new URLSearchParams(window.location.search);
   if (urlParams.get('start_download') === 'true') {
     const scrollDelay = parseInt(urlParams.get('scroll_delay'), 10) || 150;
     
-    // Wait a moment for page to initialize before starting
-    setTimeout(() => {
-      runDownloader(scrollDelay);
-    }, 1000);
+    // Wait for the document pages to actually render in the DOM before starting
+    let attempts = 0;
+    const checkInterval = setInterval(() => {
+      attempts++;
+      const selector = getPageSelector();
+      if (document.querySelector(selector)) {
+        clearInterval(checkInterval);
+        setTimeout(() => runDownloader(scrollDelay), 500); // Small buffer after elements appear
+      } else if (attempts > 30) { // 15 seconds timeout
+        clearInterval(checkInterval);
+        showOverlayError("Timeout waiting for Scribd document to load.");
+      }
+    }, 500);
   }
 })();
 
@@ -447,7 +464,11 @@ function injectDownloadButton() {
   btn.onmouseout = () => btn.style.transform = 'scale(1)';
   btn.onclick = () => startDownloadOrRedirect(150);
 
-  document.body.appendChild(btn);
+  if (document.body) {
+    document.body.appendChild(btn);
+  } else {
+    document.addEventListener('DOMContentLoaded', () => document.body && document.body.appendChild(btn));
+  }
 }
 
 function getDocumentTitle() {
