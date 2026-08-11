@@ -15,13 +15,7 @@ document.addEventListener('keydown', (e) => {
   }
 });
 
-function destroyPaywalls() {
-  const blockers = document.querySelectorAll('.signup_modal, [data-e2e="paywall-overlay"], .reading-wall, .paywall');
-  blockers.forEach(el => el.remove());
-  if (document.body.style.overflow === 'hidden') {
-    document.body.style.overflow = 'auto'; // Unlock scroll
-  }
-}
+
 
 
 
@@ -121,7 +115,6 @@ async function scrollThroughPages(scrollDelayMs) {
     );
 
     for (let i = scrolledCount; i < totalPages; i++) {
-      destroyPaywalls(); // Keep checking for paywalls as we scroll
       pageElements[i].scrollIntoView({ behavior: 'instant', block: 'center' });
       await new Promise(resolve => setTimeout(resolve, scrollDelayMs));
       
@@ -221,8 +214,7 @@ function prepareForPrint(paperSize) {
     [class*="cookie"], [class*="Cookie"], [class*="consent"],
     [class*="Consent"], [class*="gdpr"], [class*="privacy-notice"],
     [class*="notice-banner"], [id*="cookie"], [id*="consent"],
-    [class*="osano-cm"], [id*="osano"], [class*="paywall"],
-    [class*="reading-wall"], .modal, .signup_modal {
+    [class*="osano-cm"], [id*="osano"] {
       display: none !important;
       visibility: hidden !important;
       opacity: 0 !important;
