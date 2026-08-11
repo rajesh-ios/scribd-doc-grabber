@@ -1,8 +1,24 @@
 let originalStyles = [];
 let overlay = null;
 
+function startDownloadOrRedirect(scrollDelayMs = 150) {
+  const url = window.location.href;
+  if (url.includes('/embeds/')) {
+    runDownloader(scrollDelayMs);
+  } else {
+    const match = url.match(/https?:\/\/(?:[^/]+\.)?scribd\.com\/(?:document|doc)\/(\d+)/);
+    if (match) {
+      const docId = match[1];
+      const embedUrl = `https://www.scribd.com/embeds/${docId}/content?start_download=true&scroll_delay=${scrollDelayMs}&original_url=${encodeURIComponent(url)}`;
+      window.location.href = embedUrl;
+    } else {
+      runDownloader(scrollDelayMs);
+    }
+  }
+}
+
 // Expose globally for background script (context menu)
-window.runDownloader = runDownloader;
+window.runDownloader = startDownloadOrRedirect;
 
 // Keyboard Shortcut: Cmd/Ctrl + Shift + S
 document.addEventListener('keydown', (e) => {
@@ -10,7 +26,7 @@ document.addEventListener('keydown', (e) => {
     e.preventDefault();
     const btn = document.getElementById('injected-scribd-downloader-btn');
     if (btn && !btn.disabled) {
-      runDownloader(150);
+      startDownloadOrRedirect(150);
     }
   }
 });
@@ -242,7 +258,7 @@ function prepareForPrint(paperSize) {
       }
 
       @page {
-        size: ${widthVal} ${heightVal};
+        ${paperSize ? `size: ${widthVal} ${heightVal};` : 'size: auto;'}
         margin: 0;
       }
 
@@ -281,12 +297,12 @@ function prepareForPrint(paperSize) {
         min-height: 0 !important;
       }
 
-      .outer_page_container > *:not(.outer_page),
-      .newpage_container > *:not(.newpage) {
+      .outer_page_container > *:not(.outer_page):not(.newpage):not(.reader_page):not(.page_content),
+      .newpage_container > *:not(.outer_page):not(.newpage):not(.reader_page):not(.page_content) {
         display: none !important;
       }
 
-      .outer_page {
+      .outer_page, .newpage, .reader_page, .page_content, [class*='page'] {
         margin: 0 !important;
         break-inside: avoid !important;
         page-break-inside: avoid !important;
@@ -297,7 +313,9 @@ function prepareForPrint(paperSize) {
       .outer_page:last-of-type,
       .outer_page:last-child,
       .newpage:last-of-type,
-      .newpage:last-child {
+      .newpage:last-child,
+      .reader_page:last-of-type,
+      .page_content:last-of-type {
         break-after: avoid !important;
         page-break-after: avoid !important;
       }
@@ -427,7 +445,7 @@ function injectDownloadButton() {
   `;
   btn.onmouseover = () => btn.style.transform = 'scale(1.05)';
   btn.onmouseout = () => btn.style.transform = 'scale(1)';
-  btn.onclick = () => runDownloader(150);
+  btn.onclick = () => startDownloadOrRedirect(150);
 
   document.body.appendChild(btn);
 }
