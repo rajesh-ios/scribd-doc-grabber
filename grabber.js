@@ -16,7 +16,7 @@ document.addEventListener('keydown', (e) => {
 });
 
 function destroyPaywalls() {
-  const blockers = document.querySelectorAll('.modal, .signup_modal, .overlay, [data-e2e="paywall-overlay"], .full-screen-overlay, .reading-wall, .paywall');
+  const blockers = document.querySelectorAll('.signup_modal, [data-e2e="paywall-overlay"], .reading-wall, .paywall');
   blockers.forEach(el => el.remove());
   if (document.body.style.overflow === 'hidden') {
     document.body.style.overflow = 'auto'; // Unlock scroll
@@ -33,16 +33,8 @@ async function runDownloader(scrollDelayMs) {
     // 1. Detect the page size before applying layout fixes
     const paperSize = detectDocumentPaperSize();
     
-    // 2. High Quality Image Forcing - Zoom in to force high-res assets
-    const scroller = document.querySelector('.document_scroller') || document.body;
-    scroller.style.transformOrigin = 'top left';
-    scroller.style.transform = 'scale(1.5)';
-
-    // 3. Start scrolling through pages to trigger lazy loading
+    // 2. Start scrolling through pages to trigger lazy loading
     const totalPages = await scrollThroughPages(scrollDelayMs);
-    
-    // Reset zoom
-    scroller.style.transform = 'none';
     
     if (totalPages === 0) {
       removeOverlay();
