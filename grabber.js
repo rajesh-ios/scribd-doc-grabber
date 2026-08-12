@@ -1,40 +1,24 @@
 let originalStyles = [];
 let overlay = null;
 
-function startDownloadOrRedirect(scrollDelayMs = 150) {
-  const url = window.location.href;
-  if (url.includes('/embeds/')) {
-    runDownloader(scrollDelayMs);
-  } else {
-    const match = url.match(/https?:\/\/(?:[^/]+\.)?scribd\.com\/(?:document|doc|book|read|embeds)\/(\d+)/);
-    if (match) {
-      const docId = match[1];
-      const embedUrl = `https://www.scribd.com/embeds/${docId}/content?start_download=true&scroll_delay=${scrollDelayMs}&original_url=${encodeURIComponent(url)}`;
-      window.location.href = embedUrl;
-    } else {
-      alert("Scribd Document Grabber: Could not find Document ID.");
-      runDownloader(scrollDelayMs);
+function safeSendMessage(message) {
+  try {
+    if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.id) {
+      chrome.runtime.sendMessage(message);
     }
+  } catch (error) {
+    // Extension context is invalidated, ignore safely
   }
 }
 
-// Expose globally for background script (context menu)
-window.runDownloader = startDownloadOrRedirect;
-
-// Keyboard Shortcut: Cmd/Ctrl + Shift + S
-document.addEventListener('keydown', (e) => {
-  if ((e.metaKey || e.ctrlKey) && e.shiftKey && (e.key === 's' || e.key === 'S')) {
-    e.preventDefault();
-    const btn = document.getElementById('injected-scribd-downloader-btn');
-    if (btn && !btn.disabled) {
-      startDownloadOrRedirect(150);
-    }
+// Listener for messages from extension popup (when manually run on an embed page)
+chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+  if (request.action === "START_DOWNLOAD") {
+    runDownloader(request.scrollDelay || 150);
+    sendResponse({ started: true });
   }
+  return true;
 });
-
-
-
-
 
 async function runDownloader(scrollDelayMs) {
   try {
@@ -46,7 +30,6 @@ async function runDownloader(scrollDelayMs) {
     
     // 2. Start scrolling through pages to trigger lazy loading
     const totalPages = await scrollThroughPages(scrollDelayMs);
-    
     if (totalPages === 0) {
       removeOverlay();
       return;
@@ -65,24 +48,52 @@ async function runDownloader(scrollDelayMs) {
 
     // 5. Trigger print dialog
     updateOverlay("Opening print dialog...", "Please select 'Save as PDF' as the Destination in the next step.", 100, 100, false);
+    
+    // Notify popup script (if still open)
+    safeSendMessage({ action: "PROGRESS", status: "printing" });
 
     setTimeout(() => {
-      const originalTitle = document.title;
-      document.title = getDocumentTitle(); // Better File Naming: use exact title
+      const titleParam = new URLSearchParams(window.location.search).get('doc_title');
+      if (titleParam) {
+        document.title = decodeURIComponent(titleParam);
+      }
       window.print();
       
-      document.title = originalTitle; // Restore original title
       // 6. Restore page layout
       restorePage();
+      
+      safeSendMessage({ action: "PROGRESS", status: "completed" });
 
-      // 7. Redirect or show completed state
+      // 7. Show completed state on overlay with return button (avoids beforeunload block)
       const urlParams = new URLSearchParams(window.location.search);
       const originalUrl = urlParams.get('original_url');
       if (originalUrl) {
-        updateOverlay("Completed!");
-        window.location.href = decodeURIComponent(originalUrl);
+        updateOverlay("Completed!", "PDF generation is finished. Click below to return to the document page.");
+        const btnContainer = document.getElementById('sd-btn-container');
+        if (btnContainer && btnContainer.children.length === 0) {
+          const backBtn = document.createElement("button");
+          backBtn.innerText = "Return to Document Page";
+          backBtn.style.cssText = `
+            margin-top: 18px;
+            width: 100%;
+            background: linear-gradient(135deg, #10864c 0%, #22c55e 100%);
+            border: none;
+            border-radius: 8px;
+            color: #ffffff;
+            padding: 10px;
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+            box-shadow: 0 4px 15px rgba(16, 134, 76, 0.3);
+          `;
+          backBtn.onclick = () => {
+            removeOverlay();
+            window.location.href = decodeURIComponent(originalUrl);
+          };
+          btnContainer.appendChild(backBtn);
+        }
       } else {
-        updateOverlay("Completed!");
+        updateOverlay("Completed!", "PDF generation is finished. Restoring page...");
         setTimeout(() => {
           removeOverlay();
         }, 3000);
@@ -90,6 +101,7 @@ async function runDownloader(scrollDelayMs) {
     }, 500);
 
   } catch (error) {
+    safeSendMessage({ action: "ERROR", message: error.message });
     showOverlayError(error.message);
   }
 }
@@ -98,8 +110,6 @@ function getPageSelector() {
   if (document.querySelector('.outer_page')) return '.outer_page';
   if (document.querySelector('.newpage')) return '.newpage';
   if (document.querySelector('.outer_page_container')) return '.outer_page_container';
-  if (document.querySelector('.reader_page')) return '.reader_page'; // Support for premium books
-  if (document.querySelector('.page_content')) return '.page_content'; // Support for premium books
   return "[class*='page']";
 }
 
@@ -130,6 +140,7 @@ async function scrollThroughPages(scrollDelayMs) {
       scrolledCount,
       totalPages
     );
+    safeSendMessage({ action: "PROGRESS", status: "scrolling", current: scrolledCount, total: totalPages });
 
     for (let i = scrolledCount; i < totalPages; i++) {
       pageElements[i].scrollIntoView({ behavior: 'instant', block: 'center' });
@@ -142,6 +153,7 @@ async function scrollThroughPages(scrollDelayMs) {
           i + 1,
           totalPages
         );
+        safeSendMessage({ action: "PROGRESS", status: "scrolling", current: i + 1, total: totalPages });
       }
     }
 
@@ -157,8 +169,6 @@ function detectDocumentPaperSize() {
     '.outer_page',
     '.newpage',
     '.outer_page_container',
-    '.reader_page',
-    '.page_content',
     "[class*='page']"
   ];
 
@@ -259,7 +269,7 @@ function prepareForPrint(paperSize) {
       }
 
       @page {
-        ${paperSize ? `size: ${widthVal} ${heightVal};` : 'size: auto;'}
+        size: ${widthVal} ${heightVal};
         margin: 0;
       }
 
@@ -298,12 +308,12 @@ function prepareForPrint(paperSize) {
         min-height: 0 !important;
       }
 
-      .outer_page_container > *:not(.outer_page):not(.newpage):not(.reader_page):not(.page_content),
-      .newpage_container > *:not(.outer_page):not(.newpage):not(.reader_page):not(.page_content) {
+      .outer_page_container > *:not(.outer_page),
+      .newpage_container > *:not(.newpage) {
         display: none !important;
       }
 
-      .outer_page, .newpage, .reader_page, .page_content, [class*='page'] {
+      .outer_page {
         margin: 0 !important;
         break-inside: avoid !important;
         page-break-inside: avoid !important;
@@ -314,9 +324,7 @@ function prepareForPrint(paperSize) {
       .outer_page:last-of-type,
       .outer_page:last-child,
       .newpage:last-of-type,
-      .newpage:last-child,
-      .reader_page:last-of-type,
-      .page_content:last-of-type {
+      .newpage:last-child {
         break-after: avoid !important;
         page-break-after: avoid !important;
       }
@@ -361,103 +369,172 @@ function restorePage() {
   originalStyles = [];
 }
 
-/* UI Overlay Functions (now routed to button) */
+/* UI Overlay Functions */
+function createOverlay() {
+  if (overlay) return;
+
+  overlay = document.createElement('div');
+  overlay.id = 'scribd-downloader-overlay';
+  overlay.style.cssText = `
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    background: rgba(15, 23, 42, 0.95);
+    z-index: 9999999;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    color: #f8fafc;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  `;
+
+  overlay.innerHTML = `
+    <div style="background: rgba(30, 41, 59, 0.9); border: 1px solid rgba(255,255,255,0.08); border-radius: 16px; padding: 32px; width: 360px; box-shadow: 0 20px 25px -5px rgba(0,0,0,0.5); display: flex; flex-direction: column; align-items: center; text-align: center; backdrop-filter: blur(12px);">
+      <!-- Progress Icon -->
+      <div style="width: 48px; height: 48px; background: linear-gradient(135deg, #10864c, #22c55e); border-radius: 50%; display: flex; align-items: center; justify-content: center; margin-bottom: 20px; box-shadow: 0 0 15px rgba(16, 134, 76, 0.5);">
+        <svg style="width: 24px; height: 24px; color: white;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+          <polyline points="7 10 12 15 17 10" />
+          <line x1="12" y1="15" x2="12" y2="3" />
+        </svg>
+      </div>
+      <div style="font-size: 18px; font-weight: 700; margin-bottom: 8px; background: linear-gradient(135deg, #10864c, #22c55e); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">Scribd PDF Downloader</div>
+      <div id="sd-overlay-status" style="font-size: 13px; font-weight: 600; margin-bottom: 4px; color: #f8fafc;">Preparing...</div>
+      <div id="sd-overlay-detail" style="font-size: 11px; color: #94a3b8; margin-bottom: 20px; line-height: 1.4;">Connecting and initializing document parameters...</div>
+      
+      <!-- Progress Bar -->
+      <div style="width: 100%; height: 8px; background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 4px; overflow: hidden; margin-bottom: 8px;">
+        <div id="sd-overlay-fill" style="width: 0%; height: 100%; background: linear-gradient(90deg, #10864c, #22c55e); border-radius: 4px; transition: width 0.2s; box-shadow: 0 0 8px rgba(16, 134, 76, 0.4);"></div>
+      </div>
+      <div style="width: 100%; display: flex; justify-content: space-between; font-size: 10px; color: #94a3b8; font-weight: 500;">
+        <span id="sd-overlay-percent">0%</span>
+        <span id="sd-overlay-count">0 / 0 pages</span>
+      </div>
+      <div id="sd-btn-container" style="width: 100%;"></div>
+    </div>
+  `;
+
+  document.body.appendChild(overlay);
+}
+
 function updateOverlay(status, detail, current, total, showPageCount = true) {
-  const btn = document.getElementById('injected-scribd-downloader-btn');
-  
-  if (btn) {
-    btn.disabled = true;
-    btn.style.cursor = 'wait';
-    btn.style.transform = 'scale(1)';
+  createOverlay();
+  const statusEl = document.getElementById('sd-overlay-status');
+  const detailEl = document.getElementById('sd-overlay-detail');
+  const fillEl = document.getElementById('sd-overlay-fill');
+  const percentEl = document.getElementById('sd-overlay-percent');
+  const countEl = document.getElementById('sd-overlay-count');
 
-    if (current !== undefined && total !== undefined && total > 0) {
-      const percent = Math.round((current / total) * 100) || 0;
-      if (status === "Loading pages...") {
-        btn.innerText = `⏳ ${percent}% (${current}/${total})`;
-      } else {
-        btn.innerText = `⏳ ${status} (${percent}%)`;
-      }
-      btn.style.background = `linear-gradient(90deg, #0d6e3e ${percent}%, #10864c ${percent}%)`;
+  if (status) statusEl.innerText = status;
+  if (detail) detailEl.innerText = detail;
+
+  if (current !== undefined && total !== undefined) {
+    const percent = Math.round((current / total) * 100) || 0;
+    fillEl.style.width = `${percent}%`;
+    percentEl.innerText = `${percent}%`;
+    if (showPageCount) {
+      countEl.innerText = `Page ${current} / ${total}`;
     } else {
-      btn.innerText = `⏳ ${status}`;
-      btn.style.background = 'linear-gradient(135deg, #10864c, #22c55e)';
+      countEl.innerText = "";
     }
-  }
-
-  // Inject a subtle top progress bar so user knows it hasn't frozen
-  let bar = document.getElementById('sd-top-progress');
-  if (!bar && document.body) {
-    bar = document.createElement('div');
-    bar.id = 'sd-top-progress';
-    bar.style.cssText = 'position: fixed; top: 0; left: 0; width: 100%; height: 8px; background: rgba(0,0,0,0.1); z-index: 99999999; box-shadow: 0 2px 10px rgba(16, 134, 76, 0.3);';
-    const fill = document.createElement('div');
-    fill.id = 'sd-top-progress-fill';
-    fill.style.cssText = 'height: 100%; width: 0%; background: linear-gradient(90deg, #10864c, #22c55e); transition: width 0.2s;';
-    bar.appendChild(fill);
-    document.body.appendChild(bar);
-  }
-  
-  if (bar && current && total) {
-    const p = Math.round((current / total) * 100);
-    const fill = document.getElementById('sd-top-progress-fill');
-    if (fill) fill.style.width = `${p}%`;
   }
 }
 
 function showOverlayError(errMessage) {
-  const btn = document.getElementById('injected-scribd-downloader-btn');
-  
-  if (btn) {
-    btn.innerText = '❌ Error (Click to retry)';
-    btn.style.background = '#ef4444';
-    btn.disabled = false;
-    btn.style.cursor = 'pointer';
+  createOverlay();
+  const statusEl = document.getElementById('sd-overlay-status');
+  const detailEl = document.getElementById('sd-overlay-detail');
+  const fillEl = document.getElementById('sd-overlay-fill');
+  const btnContainer = document.getElementById('sd-btn-container');
+
+  statusEl.innerText = "Error encountered";
+  detailEl.innerText = errMessage || "An unexpected error occurred.";
+  fillEl.style.backgroundColor = "#ef4444";
+  fillEl.style.boxShadow = "0 0 8px rgba(239, 68, 68, 0.4)";
+
+  // Add a redirect back button
+  if (btnContainer && btnContainer.children.length === 0) {
+    const backBtn = document.createElement("button");
+    backBtn.innerText = "Return to Document Page";
+    backBtn.style.cssText = `
+      margin-top: 18px;
+      width: 100%;
+      background: linear-gradient(135deg, #10864c 0%, #22c55e 100%);
+      border: none;
+      border-radius: 8px;
+      color: #ffffff;
+      padding: 10px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      box-shadow: 0 4px 15px rgba(16, 134, 76, 0.3);
+    `;
+    backBtn.onclick = () => {
+      removeOverlay();
+      const urlParams = new URLSearchParams(window.location.search);
+      const originalUrl = urlParams.get('original_url');
+      if (originalUrl) {
+        window.location.href = decodeURIComponent(originalUrl);
+      }
+    };
+    btnContainer.appendChild(backBtn);
   }
-  
-  // Alert the user explicitly so they know it didn't just "do nothing"
-  alert("Scribd Document Grabber Error: " + errMessage);
 }
 
 function removeOverlay() {
-  const btn = document.getElementById('injected-scribd-downloader-btn');
-  if (!btn) return;
-
-  btn.innerText = '📥 Get Document';
-  btn.style.background = 'linear-gradient(135deg, #10864c, #22c55e)';
-  btn.disabled = false;
-  btn.style.cursor = 'pointer';
+  if (overlay) {
+    overlay.remove();
+    overlay = null;
+  }
 }
 
-// Initialization
+// Auto-start check when script loads in embed context
 (() => {
-  // 1. Inject UI Button on page
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', injectDownloadButton);
-  } else {
-    injectDownloadButton();
-  }
-
-  // 2. Auto-start check when script loads in embed context
   const urlParams = new URLSearchParams(window.location.search);
   if (urlParams.get('start_download') === 'true') {
     const scrollDelay = parseInt(urlParams.get('scroll_delay'), 10) || 150;
     
-    // Wait for the document pages to actually render in the DOM before starting
-    let attempts = 0;
-    const checkInterval = setInterval(() => {
-      attempts++;
-      const selector = getPageSelector();
-      if (document.querySelector(selector)) {
-        clearInterval(checkInterval);
-        setTimeout(() => runDownloader(scrollDelay), 500); // Small buffer after elements appear
-      } else if (attempts > 30) { // 15 seconds timeout
-        clearInterval(checkInterval);
-        showOverlayError("Timeout waiting for Scribd document to load.");
-      }
-    }, 500);
+    // Wait a moment for page to initialize before starting
+    setTimeout(() => {
+      runDownloader(scrollDelay);
+    }, 1000);
   }
 })();
 
+// ====== ADDED CUSTOM TRIGGERS ======
+
+function startDownloadOrRedirect(scrollDelayMs = 150) {
+  const url = window.location.href;
+  if (url.includes('/embeds/')) {
+    runDownloader(scrollDelayMs);
+  } else {
+    const match = url.match(/https?:\/\/(?:[^/]+\.)?scribd\.com\/(?:document|doc|book|read|embeds)\/(\d+)/);
+    if (match) {
+      const docId = match[1];
+      const embedUrl = `https://www.scribd.com/embeds/${docId}/content?start_download=true&scroll_delay=${scrollDelayMs}&original_url=${encodeURIComponent(url)}&doc_title=${encodeURIComponent(document.title)}`;
+      window.location.href = embedUrl;
+    } else {
+      alert("Scribd Document Grabber: Could not find Document ID in URL.");
+      runDownloader(scrollDelayMs);
+    }
+  }
+}
+
+// 1. Expose globally for background script (context menu)
+window.runDownloader = startDownloadOrRedirect;
+
+// 2. Keyboard Shortcut: Cmd/Ctrl + Shift + S
+document.addEventListener('keydown', (e) => {
+  if ((e.metaKey || e.ctrlKey) && e.shiftKey && (e.key === 's' || e.key === 'S')) {
+    e.preventDefault();
+    startDownloadOrRedirect(150);
+  }
+});
+
+// 3. Inject UI Button on page
 function injectDownloadButton() {
   if (document.getElementById('injected-scribd-downloader-btn')) return;
 
@@ -492,18 +569,8 @@ function injectDownloadButton() {
   }
 }
 
-function getDocumentTitle() {
-  const h1 = document.querySelector('h1');
-  if (h1 && h1.innerText) return h1.innerText.trim();
-  
-  const title = document.querySelector('title');
-  if (title && title.innerText) {
-    let rawTitle = title.innerText;
-    // Strip common Scribd suffixes
-    rawTitle = rawTitle.replace(/ - Scribd/gi, '');
-    rawTitle = rawTitle.replace(/\| Scribd/gi, '');
-    rawTitle = rawTitle.replace(/Read .*? Online/gi, '');
-    return rawTitle.trim();
-  }
-  return 'Scribd_Document';
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', injectDownloadButton);
+} else {
+  injectDownloadButton();
 }
