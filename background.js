@@ -11,8 +11,8 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
     chrome.scripting.executeScript({
       target: { tabId: tab.id },
       func: () => {
-        if (typeof window.runDownloader === 'function') {
-          window.runDownloader(150);
+        if (typeof window.triggerScribdDownload === 'function') {
+          window.triggerScribdDownload(150);
         }
       }
     });

@@ -509,6 +509,7 @@ function removeOverlay() {
 function startDownloadOrRedirect(scrollDelayMs = 150) {
   const url = window.location.href;
   if (url.includes('/embeds/')) {
+    // Call the original script's runDownloader
     runDownloader(scrollDelayMs);
   } else {
     const match = url.match(/https?:\/\/(?:[^/]+\.)?scribd\.com\/(?:document|doc|book|read|embeds)\/(\d+)/);
@@ -533,7 +534,7 @@ function startDownloadOrRedirect(scrollDelayMs = 150) {
 }
 
 // 1. Expose globally for background script (context menu)
-window.runDownloader = startDownloadOrRedirect;
+window.triggerScribdDownload = startDownloadOrRedirect;
 
 // 2. Keyboard Shortcut: Cmd/Ctrl + Shift + S
 document.addEventListener('keydown', (e) => {
