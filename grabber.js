@@ -61,39 +61,17 @@ async function runDownloader(scrollDelayMs) {
       
       // 6. Restore page layout
       restorePage();
-      
       safeSendMessage({ action: "PROGRESS", status: "completed" });
 
-      // 7. Show completed state on overlay with return button (avoids beforeunload block)
+      // 7. Show completed state on button and auto-return
+      updateOverlay("Completed!", "");
       const urlParams = new URLSearchParams(window.location.search);
       const originalUrl = urlParams.get('original_url');
       if (originalUrl) {
-        updateOverlay("Completed!", "PDF generation is finished. Click below to return to the document page.");
-        const btnContainer = document.getElementById('sd-btn-container');
-        if (btnContainer && btnContainer.children.length === 0) {
-          const backBtn = document.createElement("button");
-          backBtn.innerText = "Return to Document Page";
-          backBtn.style.cssText = `
-            margin-top: 18px;
-            width: 100%;
-            background: linear-gradient(135deg, #10864c 0%, #22c55e 100%);
-            border: none;
-            border-radius: 8px;
-            color: #ffffff;
-            padding: 10px;
-            font-size: 12px;
-            font-weight: 600;
-            cursor: pointer;
-            box-shadow: 0 4px 15px rgba(16, 134, 76, 0.3);
-          `;
-          backBtn.onclick = () => {
-            removeOverlay();
-            window.location.href = decodeURIComponent(originalUrl);
-          };
-          btnContainer.appendChild(backBtn);
-        }
+        setTimeout(() => {
+          window.location.href = decodeURIComponent(originalUrl);
+        }, 1500);
       } else {
-        updateOverlay("Completed!", "PDF generation is finished. Restoring page...");
         setTimeout(() => {
           removeOverlay();
         }, 3000);
@@ -369,125 +347,70 @@ function restorePage() {
   originalStyles = [];
 }
 
-/* UI Overlay Functions */
-function createOverlay() {
-  if (overlay) return;
-
-  overlay = document.createElement('div');
-  overlay.id = 'scribd-downloader-overlay';
-  overlay.style.cssText = `
-    position: fixed;
-    top: 0;
-    left: 0;
-    width: 100vw;
-    height: 100vh;
-    background: rgba(15, 23, 42, 0.95);
-    z-index: 9999999;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    color: #f8fafc;
-    font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-  `;
-
-  overlay.innerHTML = `
-    <div style="background: rgba(30, 41, 59, 0.9); border: 1px solid rgba(255,255,255,0.08); border-radius: 16px; padding: 32px; width: 360px; box-shadow: 0 20px 25px -5px rgba(0,0,0,0.5); display: flex; flex-direction: column; align-items: center; text-align: center; backdrop-filter: blur(12px);">
-      <!-- Progress Icon -->
-      <div style="width: 48px; height: 48px; background: linear-gradient(135deg, #10864c, #22c55e); border-radius: 50%; display: flex; align-items: center; justify-content: center; margin-bottom: 20px; box-shadow: 0 0 15px rgba(16, 134, 76, 0.5);">
-        <svg style="width: 24px; height: 24px; color: white;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-          <polyline points="7 10 12 15 17 10" />
-          <line x1="12" y1="15" x2="12" y2="3" />
-        </svg>
-      </div>
-      <div style="font-size: 18px; font-weight: 700; margin-bottom: 8px; background: linear-gradient(135deg, #10864c, #22c55e); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">Scribd PDF Downloader</div>
-      <div id="sd-overlay-status" style="font-size: 13px; font-weight: 600; margin-bottom: 4px; color: #f8fafc;">Preparing...</div>
-      <div id="sd-overlay-detail" style="font-size: 11px; color: #94a3b8; margin-bottom: 20px; line-height: 1.4;">Connecting and initializing document parameters...</div>
-      
-      <!-- Progress Bar -->
-      <div style="width: 100%; height: 8px; background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 4px; overflow: hidden; margin-bottom: 8px;">
-        <div id="sd-overlay-fill" style="width: 0%; height: 100%; background: linear-gradient(90deg, #10864c, #22c55e); border-radius: 4px; transition: width 0.2s; box-shadow: 0 0 8px rgba(16, 134, 76, 0.4);"></div>
-      </div>
-      <div style="width: 100%; display: flex; justify-content: space-between; font-size: 10px; color: #94a3b8; font-weight: 500;">
-        <span id="sd-overlay-percent">0%</span>
-        <span id="sd-overlay-count">0 / 0 pages</span>
-      </div>
-      <div id="sd-btn-container" style="width: 100%;"></div>
-    </div>
-  `;
-
-  document.body.appendChild(overlay);
-}
-
+/* UI Overlay Functions (Routed to Button & Top Bar) */
 function updateOverlay(status, detail, current, total, showPageCount = true) {
-  createOverlay();
-  const statusEl = document.getElementById('sd-overlay-status');
-  const detailEl = document.getElementById('sd-overlay-detail');
-  const fillEl = document.getElementById('sd-overlay-fill');
-  const percentEl = document.getElementById('sd-overlay-percent');
-  const countEl = document.getElementById('sd-overlay-count');
+  const btn = document.getElementById('injected-scribd-downloader-btn');
+  
+  if (btn) {
+    btn.disabled = true;
+    btn.style.cursor = 'wait';
+    btn.style.transform = 'scale(1)';
 
-  if (status) statusEl.innerText = status;
-  if (detail) detailEl.innerText = detail;
-
-  if (current !== undefined && total !== undefined) {
-    const percent = Math.round((current / total) * 100) || 0;
-    fillEl.style.width = `${percent}%`;
-    percentEl.innerText = `${percent}%`;
-    if (showPageCount) {
-      countEl.innerText = `Page ${current} / ${total}`;
+    if (current !== undefined && total !== undefined && total > 0) {
+      const percent = Math.round((current / total) * 100) || 0;
+      if (status === "Loading pages...") {
+        btn.innerText = `⏳ ${percent}% (${current}/${total})`;
+      } else {
+        btn.innerText = `⏳ ${status} (${percent}%)`;
+      }
+      btn.style.background = `linear-gradient(90deg, #0d6e3e ${percent}%, #10864c ${percent}%)`;
     } else {
-      countEl.innerText = "";
+      btn.innerText = `⏳ ${status}`;
+      btn.style.background = 'linear-gradient(135deg, #10864c, #22c55e)';
     }
+  }
+
+  // Inject a subtle top progress bar so user knows it hasn't frozen
+  let bar = document.getElementById('sd-top-progress');
+  if (!bar && document.body) {
+    bar = document.createElement('div');
+    bar.id = 'sd-top-progress';
+    bar.style.cssText = 'position: fixed; top: 0; left: 0; width: 100%; height: 8px; background: rgba(0,0,0,0.1); z-index: 99999999; box-shadow: 0 2px 10px rgba(16, 134, 76, 0.3);';
+    const fill = document.createElement('div');
+    fill.id = 'sd-top-progress-fill';
+    fill.style.cssText = 'height: 100%; width: 0%; background: linear-gradient(90deg, #10864c, #22c55e); transition: width 0.2s;';
+    bar.appendChild(fill);
+    document.body.appendChild(bar);
+  }
+  
+  if (bar && current && total) {
+    const p = Math.round((current / total) * 100);
+    const fill = document.getElementById('sd-top-progress-fill');
+    if (fill) fill.style.width = `${p}%`;
   }
 }
 
 function showOverlayError(errMessage) {
-  createOverlay();
-  const statusEl = document.getElementById('sd-overlay-status');
-  const detailEl = document.getElementById('sd-overlay-detail');
-  const fillEl = document.getElementById('sd-overlay-fill');
-  const btnContainer = document.getElementById('sd-btn-container');
-
-  statusEl.innerText = "Error encountered";
-  detailEl.innerText = errMessage || "An unexpected error occurred.";
-  fillEl.style.backgroundColor = "#ef4444";
-  fillEl.style.boxShadow = "0 0 8px rgba(239, 68, 68, 0.4)";
-
-  // Add a redirect back button
-  if (btnContainer && btnContainer.children.length === 0) {
-    const backBtn = document.createElement("button");
-    backBtn.innerText = "Return to Document Page";
-    backBtn.style.cssText = `
-      margin-top: 18px;
-      width: 100%;
-      background: linear-gradient(135deg, #10864c 0%, #22c55e 100%);
-      border: none;
-      border-radius: 8px;
-      color: #ffffff;
-      padding: 10px;
-      font-size: 12px;
-      font-weight: 600;
-      cursor: pointer;
-      box-shadow: 0 4px 15px rgba(16, 134, 76, 0.3);
-    `;
-    backBtn.onclick = () => {
-      removeOverlay();
-      const urlParams = new URLSearchParams(window.location.search);
-      const originalUrl = urlParams.get('original_url');
-      if (originalUrl) {
-        window.location.href = decodeURIComponent(originalUrl);
-      }
-    };
-    btnContainer.appendChild(backBtn);
+  const btn = document.getElementById('injected-scribd-downloader-btn');
+  if (btn) {
+    btn.innerText = '❌ Error (Click to retry)';
+    btn.style.background = '#ef4444';
+    btn.disabled = false;
+    btn.style.cursor = 'pointer';
   }
+  alert("Scribd Document Grabber Error: " + errMessage);
 }
 
 function removeOverlay() {
-  if (overlay) {
-    overlay.remove();
-    overlay = null;
+  const bar = document.getElementById('sd-top-progress');
+  if (bar) bar.remove();
+  
+  const btn = document.getElementById('injected-scribd-downloader-btn');
+  if (btn) {
+    btn.innerText = '📥 Get Document';
+    btn.style.background = 'linear-gradient(135deg, #10864c, #22c55e)';
+    btn.disabled = false;
+    btn.style.cursor = 'pointer';
   }
 }
 
