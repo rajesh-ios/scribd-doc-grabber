@@ -515,7 +515,16 @@ function startDownloadOrRedirect(scrollDelayMs = 150) {
     if (match) {
       const docId = match[1];
       const embedUrl = `https://www.scribd.com/embeds/${docId}/content?start_download=true&scroll_delay=${scrollDelayMs}&original_url=${encodeURIComponent(url)}&doc_title=${encodeURIComponent(document.title)}`;
-      window.location.href = embedUrl;
+      
+      try {
+        chrome.runtime.sendMessage({ action: "NAVIGATE_EMBED", url: embedUrl }, (response) => {
+          if (chrome.runtime.lastError) {
+            window.location.href = embedUrl;
+          }
+        });
+      } catch (e) {
+        window.location.href = embedUrl;
+      }
     } else {
       alert("Scribd Document Grabber: Could not find Document ID in URL.");
       runDownloader(scrollDelayMs);

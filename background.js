@@ -18,3 +18,11 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
     });
   }
 });
+
+chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+  if (request.action === "NAVIGATE_EMBED" && sender.tab) {
+    chrome.tabs.update(sender.tab.id, { url: request.url });
+    sendResponse({ success: true });
+  }
+  return true;
+});
