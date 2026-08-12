@@ -6,12 +6,13 @@ function startDownloadOrRedirect(scrollDelayMs = 150) {
   if (url.includes('/embeds/')) {
     runDownloader(scrollDelayMs);
   } else {
-    const match = url.match(/https?:\/\/(?:[^/]+\.)?scribd\.com\/(?:document|doc)\/(\d+)/);
+    const match = url.match(/https?:\/\/(?:[^/]+\.)?scribd\.com\/(?:document|doc|book|read|embeds)\/(\d+)/);
     if (match) {
       const docId = match[1];
       const embedUrl = `https://www.scribd.com/embeds/${docId}/content?start_download=true&scroll_delay=${scrollDelayMs}&original_url=${encodeURIComponent(url)}`;
       window.location.href = embedUrl;
     } else {
+      alert("Scribd Document Grabber: Could not find Document ID.");
       runDownloader(scrollDelayMs);
     }
   }
@@ -363,23 +364,43 @@ function restorePage() {
 /* UI Overlay Functions (now routed to button) */
 function updateOverlay(status, detail, current, total, showPageCount = true) {
   const btn = document.getElementById('injected-scribd-downloader-btn');
-  if (!btn) return;
+  
+  if (btn) {
+    btn.disabled = true;
+    btn.style.cursor = 'wait';
+    btn.style.transform = 'scale(1)';
 
-  btn.disabled = true;
-  btn.style.cursor = 'wait';
-  btn.style.transform = 'scale(1)';
-
-  if (current !== undefined && total !== undefined && total > 0) {
-    const percent = Math.round((current / total) * 100) || 0;
-    if (status === "Loading pages...") {
-      btn.innerText = `⏳ Loading: ${percent}% (${current}/${total})`;
+    if (current !== undefined && total !== undefined && total > 0) {
+      const percent = Math.round((current / total) * 100) || 0;
+      if (status === "Loading pages...") {
+        btn.innerText = `⏳ ${percent}% (${current}/${total})`;
+      } else {
+        btn.innerText = `⏳ ${status} (${percent}%)`;
+      }
+      btn.style.background = `linear-gradient(90deg, #0d6e3e ${percent}%, #10864c ${percent}%)`;
     } else {
-      btn.innerText = `⏳ ${status} (${percent}%)`;
+      btn.innerText = `⏳ ${status}`;
+      btn.style.background = 'linear-gradient(135deg, #10864c, #22c55e)';
     }
-    btn.style.background = `linear-gradient(90deg, #0d6e3e ${percent}%, #10864c ${percent}%)`;
-  } else {
-    btn.innerText = `⏳ ${status}`;
-    btn.style.background = 'linear-gradient(135deg, #10864c, #22c55e)';
+  }
+
+  // Inject a subtle top progress bar so user knows it hasn't frozen
+  let bar = document.getElementById('sd-top-progress');
+  if (!bar && document.body) {
+    bar = document.createElement('div');
+    bar.id = 'sd-top-progress';
+    bar.style.cssText = 'position: fixed; top: 0; left: 0; width: 100%; height: 8px; background: rgba(0,0,0,0.1); z-index: 99999999; box-shadow: 0 2px 10px rgba(16, 134, 76, 0.3);';
+    const fill = document.createElement('div');
+    fill.id = 'sd-top-progress-fill';
+    fill.style.cssText = 'height: 100%; width: 0%; background: linear-gradient(90deg, #10864c, #22c55e); transition: width 0.2s;';
+    bar.appendChild(fill);
+    document.body.appendChild(bar);
+  }
+  
+  if (bar && current && total) {
+    const p = Math.round((current / total) * 100);
+    const fill = document.getElementById('sd-top-progress-fill');
+    if (fill) fill.style.width = `${p}%`;
   }
 }
 
